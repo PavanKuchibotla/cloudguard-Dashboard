@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CloudGuard | Cloud Security Management Plane</title>
+  <meta name="description" content="Automated VPC security auditor, CIS benchmark evaluator, and live network topology visualizer for AWS and Azure."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,700;1,400&family=Orbitron:wght@400;700;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="/src/style.css" rel="stylesheet"/>
+  <style>
+    /* Inline polished overrides */
+    .nav-status-dot { width:6px;height:6px;border-radius:50%;background:#00E5C3;box-shadow:0 0 8px rgba(0,229,195,0.8);animation:blink-dot 2s ease-in-out infinite; }
+    @keyframes blink-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
+    .nav-status { display:flex;align-items:center;gap:0.4rem;font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:rgba(0,229,195,0.7);letter-spacing:0.1em;padding:0.25rem 0.65rem;border:1px solid rgba(0,229,195,0.15);border-radius:20px;background:rgba(0,229,195,0.04); }
+    .section-badge { display:inline-flex;align-items:center;gap:0.45rem;font-family:'JetBrains Mono',monospace;font-size:0.55rem;letter-spacing:0.18em;color:rgba(0,229,195,0.7);border:1px solid rgba(0,229,195,0.18);border-radius:20px;padding:0.28rem 0.75rem;margin-bottom:1rem;background:rgba(0,229,195,0.04); }
+    .section-badge .dot { width:5px;height:5px;border-radius:50%;background:rgba(0,229,195,0.8);display:inline-block;animation:blink-dot 2s ease-in-out infinite; }
+    .metric-badge { display:inline-flex;align-items:center;gap:0.35rem;font-family:'JetBrains Mono',monospace;font-size:0.57rem;color:rgba(255,209,102,0.85);border:1px solid rgba(255,209,102,0.18);border-radius:5px;padding:0.18rem 0.55rem;background:rgba(255,209,102,0.06); }
+    .metric-badge.danger { color:rgba(255,69,96,0.9);border-color:rgba(255,69,96,0.22);background:rgba(255,69,96,0.07); }
+    .metric-badge.ok { color:rgba(0,229,195,0.9);border-color:rgba(0,229,195,0.22);background:rgba(0,229,195,0.07); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  </style>
+</head>
+<body>
+
+  <!-- 3D Background Canvas (Three.js — fixed, z=-2) -->
+  <canvas id="three-canvas"></canvas>
+
+  <!-- Custom Cursor -->
+  <div id="cursor"></div>
+  <div id="cursor-ring"></div>
+
+  <!-- Scroll Progress Bar -->
+  <div id="scroll-progress"></div>
+
+  <!-- ── NAVIGATION ─────────────────────────────────────────────────── -->
+  <nav id="nav-bar">
+    <div class="nav-logo font-orbitron"><span class="text-teal">CLOUD</span>GUARD</div>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#topology">Topology</a>
+      <a href="#audit">Audit</a>
+    </div>
+    <div class="nav-right">
+      <div class="nav-status" id="nav-live-status">
+        <span class="nav-status-dot"></span>
+        LIVE
+      </div>
+      <button id="sound-toggle" class="nav-btn">♪ OFF</button>
+      <button id="cmd-trigger" class="nav-btn cmd-hint">
+        <span>Search</span><kbd>⌘K</kbd>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── THREAT FEED TICKER ─────────────────────────────────────────── -->
+  <div class="ticker-wrap">
+    <span class="ticker-label font-mono">LIVE THREAT FEED</span>
+    <div class="ticker-track">
+      <div id="ticker-inner" class="ticker-inner"></div>
+    </div>
+  </div>
+
+  <!-- ── BOOT OVERLAY ───────────────────────────────────────────────── -->
+  <div id="overlay">
+    <div id="overlay-top"></div>
+    <div id="overlay-bottom"></div>
+    <div id="scanline"></div>
+    <div id="boot-content">
+      <div class="terminal-lines">
+        <div class="boot-line">// CLOUDGUARD v4.2.1 — initializing security plane...</div>
+        <div class="boot-line">// connecting to vpc endpoint us-east-1... [OK]</div>
+        <div class="boot-line">// loading 142 CIS benchmark rules... [OK]</div>
+        <div class="boot-line">// crawling security groups across 4 regions...</div>
+        <div class="boot-line text-gold">// WARNING: 3 critical vulnerabilities detected</div>
+      </div>
+      <div class="boot-logo font-orbitron">
+        <span class="logo-char">C</span><span class="logo-char">L</span><span class="logo-char">O</span><span class="logo-char">U</span><span class="logo-char">D</span><span class="logo-char">G</span><span class="logo-char">U</span><span class="logo-char">A</span><span class="logo-char">R</span><span class="logo-char">D</span>
+      </div>
+      <div class="boot-progress-wrap">
+        <div class="boot-progress-labels">
+          <span>BOOT_SEQ</span><span id="boot-counter">0%</span>
+        </div>
+        <div class="boot-bar-track"><div id="boot-bar"></div></div>
+      </div>
+      <div id="boot-status">SYSTEM READY. PERIMETER ONLINE.</div>
+    </div>
+  </div>
+
+  <!-- ── MAIN ───────────────────────────────────────────────────────── -->
+  <main id="main-content">
+
+    <!-- HERO -->
+    <section id="hero">
+      <!-- GLSL Plasma Hex Shader -->
+      <canvas id="shader-canvas"></canvas>
+
+      <!-- ── CLOUDGUARD 3D BRAND TITLE ──────────────────────────────────── -->
+      <div class="brand-universe" id="brand-universe">
+        <!-- Orbital rings (CSS animated) -->
+        <div class="orbit-ring orbit-1"></div>
+        <div class="orbit-ring orbit-2"></div>
+        <div class="orbit-ring orbit-3"></div>
+        <!-- Brand name -->
+        <div class="brand-name font-orbitron" id="brand-name">
+          <span class="bl" data-i="0">C</span><span class="bl" data-i="1">L</span><span class="bl" data-i="2">O</span><span class="bl" data-i="3">U</span><span class="bl" data-i="4">D</span><span class="bl gap"> </span><span class="bl accent" data-i="5">G</span><span class="bl accent" data-i="6">U</span><span class="bl accent" data-i="7">A</span><span class="bl accent" data-i="8">R</span><span class="bl accent" data-i="9">D</span>
+        </div>
+        <!-- Horizontal scan line -->
+        <div class="brand-scan-h" id="brand-scan"></div>
+        <!-- Glow beneath -->
+        <div class="brand-glow"></div>
+        <!-- Tagline -->
+        <div class="brand-tagline font-mono" id="brand-tagline">
+          <span class="bt-sym">▶</span>&nbsp;AWS &amp; AZURE SECURITY MANAGEMENT PLANE
+        </div>
+      </div>
+
+      <!-- Floating Alert Cards -->
+      <div id="fn1" class="float-node hover-danger">
+        <div class="float-node-header"><div class="dot dot-red blink"></div><span>sg-0x3f2a1</span></div>
+        <div class="float-node-body">Port 22 → 0.0.0.0/0 <strong class="text-red">EXPOSED</strong></div>
+      </div>
+      <div id="fn2" class="float-node">
+        <div class="float-node-header"><div class="dot dot-gold"></div><span>nacl-prod-02</span></div>
+        <div class="float-node-body">RDP :3389 <span class="text-gold">open to internet</span></div>
+      </div>
+      <div id="fn3" class="float-node">
+        <div class="float-node-header"><div class="dot dot-teal"></div><span>subnet-web-01</span></div>
+        <div class="float-node-body">10.0.1.0/24 · <span class="text-teal">healthy</span></div>
+      </div>
+      <div id="fn4" class="float-node">
+        <div class="float-node-header"><div class="dot dot-teal"></div><span>vpc-main</span></div>
+        <div class="float-node-body">3 subnets · 0 drift detected</div>
+      </div>
+
+      <!-- ── HERO CONTENT ─────────────────────────────────────────────────── -->
+      <div class="hero-content">
+        <h1 class="hero-title font-orbitron" id="hero-title">
+          <div class="ht-line">SECURE YOUR</div>
+          <div class="ht-line gradient-text">CLOUD PERIMETER</div>
+        </h1>
+
+        <p class="hero-sub">
+          Automated VPC crawler · Real-time CIS benchmark evaluation · Interactive topology mapping.
+          <br>Defend your cloud infrastructure before the breach happens.
+        </p>
+
+        <div class="cta-row">
+          <button id="run-scan-btn" class="btn-magnetic btn-primary">
+            <span class="btn-inner">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              RUN SECURITY SCAN
+            </span>
+          </button>
+          <button id="demo-report-btn" class="btn-magnetic btn-ghost">
+            <span class="btn-inner">VIEW DEMO REPORT</span>
+          </button>
+        </div>
+
+        <!-- Threat Meter -->
+        <div class="threat-meter-section">
+          <div class="threat-meter-ring-wrap">
+            <svg class="threat-meter-svg" viewBox="0 0 120 120">
+              <circle cx="60" cy="60" r="54" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="5.5"/>
+              <circle id="meter-outer" cx="60" cy="60" r="54" fill="none" stroke="#00E5C3" stroke-width="5.5"
+                stroke-linecap="round" stroke-dasharray="339.3" stroke-dashoffset="339.3"/>
+              <circle cx="60" cy="60" r="44" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="4.5"/>
+              <circle id="meter-mid" cx="60" cy="60" r="44" fill="none" stroke="#0FF4FF" stroke-width="4.5"
+                stroke-linecap="round" stroke-dasharray="276.5" stroke-dashoffset="276.5"/>
+              <circle cx="60" cy="60" r="34" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="3.5"/>
+              <circle id="meter-inner" cx="60" cy="60" r="34" fill="none" stroke="#FF4560" stroke-width="3.5"
+                stroke-linecap="round" stroke-dasharray="213.6" stroke-dashoffset="0"/>
+            </svg>
+            <div class="threat-meter-label">
+              <div id="meter-score" class="font-orbitron text-teal">—</div>
+              <div class="meter-sub font-mono">CIS SCORE</div>
+            </div>
+          </div>
+          <div class="threat-meter-legend font-mono">
+            <div class="legend-item"><div class="dot dot-teal"></div><span>CIS BENCHMARKS</span><strong>74/100</strong></div>
+            <div class="legend-item"><div class="dot dot-cyan"></div><span>RULES PASSED</span><strong>136/142</strong></div>
+            <div class="legend-item"><div class="dot dot-red blink"></div><span>CRITICAL FINDINGS</span><strong class="text-red">2</strong></div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stat-strip">
+          <div class="stat"><div class="stat-val font-mono"><span class="stat-num" data-target="142">0</span></div><div class="stat-label">CIS BENCHMARKS</div></div>
+          <div class="stat-divider"></div>
+          <div class="stat"><div class="stat-val font-mono"><span class="stat-num" data-target="3847">0</span>+</div><div class="stat-label">RULES EVALUATED</div></div>
+          <div class="stat-divider"></div>
+          <div class="stat"><div class="stat-val font-mono"><span class="stat-num" data-target="99">0</span>%</div><div class="stat-label">UPTIME SLA</div></div>
+          <div class="stat-divider"></div>
+          <div class="stat"><div class="stat-val font-mono"><span class="stat-num" data-target="12">0</span></div><div class="stat-label">CLOUD PROVIDERS</div></div>
+        </div>
+      </div>
+
+      <!-- Scan Progress -->
+      <div id="scan-progress-container">
+        <div class="scan-progress-header">
+          <span id="scan-phase" class="font-mono text-teal text-xs">// PENDING</span>
+          <span id="scan-pct" class="font-mono text-xs" style="color:rgba(255,255,255,0.4)">0%</span>
+        </div>
+        <div class="scan-bar-track"><div id="scan-bar"></div></div>
+        <div id="scan-msg" class="font-mono text-xs mt-2 truncate" style="color:rgba(255,255,255,0.35)">Waiting...</div>
+      </div>
+    </section>
+
+
+    <!-- FEATURES -->
+    <section id="features">
+      <div class="section-header">
+        <div class="section-badge"><span class="dot"></span> SECURITY MODULES</div>
+        <h2 class="font-orbitron">COMPREHENSIVE AUDITING</h2>
+        <div class="section-line"></div>
+        <p style="margin-top:1rem;color:rgba(255,255,255,0.38);font-size:0.85rem;max-width:480px;margin-left:auto;margin-right:auto;font-weight:400;">Multi-cloud visibility across AWS and Azure — from VPC topology to CIS benchmarks, all in one unified plane.</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card glass-card" data-action="topology">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+            <path class="draw-path" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          <h3>Network Discovery Engine</h3>
+          <p>Deep crawling across all VPCs and regions. Enumerates subnets, gateways, route tables, and elastic IPs in seconds.</p>
+          <div class="card-cta">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            VIEW LIVE TOPOLOGY MAP
+          </div>
+        </div>
+        <div class="feature-card glass-card" data-action="scan">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+            <path class="draw-path" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <h3>CIS Benchmark Evaluator</h3>
+          <p>Evaluates ingress and egress rules against all 142 CIS Foundations Benchmarks. Spot exposed resources instantly.</p>
+          <div class="card-cta">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            RUN BENCHMARK SCAN
+          </div>
+        </div>
+        <div class="feature-card glass-card" data-action="topology">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+            <circle class="draw-path" cx="12" cy="12" r="3"/>
+            <path class="draw-path" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <h3>Live Topology Map</h3>
+          <p>Real-time force-directed graph. Visualize multi-cloud interconnections, attack vectors, and rogue nodes.</p>
+          <div class="card-cta">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            EXPLORE NETWORK GRAPH
+          </div>
+        </div>
+        <div class="feature-card glass-card" data-action="audit">
+          <svg class="feature-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+            <polyline class="draw-path" points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          <h3>Drift Detection &amp; SSE Alerts</h3>
+          <p>Continuous baseline monitoring. Stream live Server-Sent Events directly into your dashboard in real time.</p>
+          <div class="card-cta">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+            VIEW AUDIT FINDINGS
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TOPOLOGY -->
+    <section id="topology">
+      <div class="topo-header">
+        <div class="section-badge"><span class="dot"></span> REAL-TIME</div>
+        <h2 class="font-orbitron">LIVE TOPOLOGY MAP</h2>
+        <div class="topo-sub font-mono">// Force-Directed Resource Graph &middot; Click node for details &middot; Drag to explore &middot; Scroll to zoom</div>
+        <div class="topo-legend font-mono">
+          <div class="legend-item"><div class="w-3 h-3 rounded-full border border-teal"></div>VPC</div>
+          <div class="legend-item"><div class="w-3 h-3 border border-teal opacity-60"></div>SUBNET</div>
+          <div class="legend-item"><div class="dot dot-white"></div>EC2</div>
+          <div class="legend-item"><div class="dot dot-red blink"></div>IGW</div>
+        </div>
+      </div>
+      <div class="topo-body">
+        <!-- Graph -->
+        <div id="topo-container" class="glass-card">
+          <div class="topo-glow"></div>
+          <div id="d3-graph"></div>
+          <div id="d3-tooltip">
+            <div class="font-bold mb-0.5 topo-tt-id"></div>
+            <div class="topo-color topo-tt-type text-[11px] mb-2"></div>
+            <div class="flex items-center justify-between gap-4 mb-1">
+              <span class="text-subdued topo-tt-region"></span>
+              <span class="topo-tt-status font-bold"></span>
+            </div>
+            <div class="topo-tt-rules text-subdued2 text-[10px] mt-1 border-t border-white/5 pt-1"></div>
+          </div>
+        </div>
+        <!-- Detail Panel -->
+        <div id="detail-panel" class="glass-card detail-panel">
+          <div class="detail-panel-header">
+            <span class="font-mono text-teal text-[10px] tracking-widest">NODE DETAIL</span>
+            <button id="detail-close">×</button>
+          </div>
+          <div class="detail-section">
+            <div class="font-bold text-sm detail-id"></div>
+            <div class="text-teal/70 text-xs mt-0.5 detail-type"></div>
+          </div>
+          <div class="detail-rows font-mono text-xs">
+            <div class="detail-row"><span>Region</span><span class="detail-region"></span></div>
+            <div class="detail-row"><span>Status</span><span class="detail-status font-bold"></span></div>
+            <div class="detail-row"><span>Group</span><span class="text-cyan detail-group uppercase"></span></div>
+          </div>
+          <div class="detail-notes">
+            <div class="font-mono text-[10px] text-white/40 mb-1">SECURITY NOTES</div>
+            <div class="detail-rules text-white/60 text-xs leading-relaxed"></div>
+          </div>
+          <button class="btn-magnetic btn-ghost-sm"><span>VIEW FULL REPORT ↗</span></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- AUDIT -->
+    <section id="audit">
+      <div class="audit-header">
+        <div class="section-badge"><span class="dot"></span> AUTOMATED AUDIT</div>
+        <h2 class="font-orbitron">CIS AUDIT FINDINGS</h2>
+        <p class="font-mono" style="font-size:0.65rem;color:rgba(255,255,255,0.35);letter-spacing:0.06em;">// GET /api/report/latest</p>
+        <div class="audit-meta">
+          <div style="text-align:center;">
+            <div class="font-mono" style="font-size:0.55rem;color:rgba(255,255,255,0.35);letter-spacing:0.18em;margin-bottom:0.25rem;">CIS SCORE</div>
+            <div class="font-orbitron text-teal" style="font-size:1.75rem;line-height:1;"><span id="cis-score">&mdash;</span></div>
+          </div>
+          <div style="width:1px;height:40px;background:rgba(255,255,255,0.08);"></div>
+          <div style="text-align:center;">
+            <div class="font-mono" style="font-size:0.55rem;color:rgba(255,255,255,0.35);letter-spacing:0.18em;margin-bottom:0.25rem;">STATUS</div>
+            <span class="metric-badge">NEEDS REVIEW</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="audit-filters font-mono">
+        <button class="audit-filter active" data-filter="ALL">ALL</button>
+        <button class="audit-filter" data-filter="CRITICAL">🔴 CRITICAL</button>
+        <button class="audit-filter" data-filter="HIGH">🟡 HIGH</button>
+        <button class="audit-filter" data-filter="MEDIUM">🟠 MEDIUM</button>
+        <button class="audit-filter" data-filter="PASS">🟢 PASS</button>
+      </div>
+
+      <div class="audit-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Severity</th>
+              <th>Rule ID</th>
+              <th>Description</th>
+              <th>Resource</th>
+              <th class="text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody id="audit-table-body">
+            <tr id="audit-placeholder">
+              <td colspan="5" class="audit-empty">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span>Run a scan or click <strong>"VIEW DEMO REPORT"</strong> to load findings</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ENDING -->
+    <section id="ending">
+      <div class="ending-rings">
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring"></div>
+      </div>
+      <div class="ending-content">
+        <div class="shield-wrap">
+          <svg viewBox="0 0 100 100" fill="none">
+            <path id="shield-path" d="M50 5 L90 20 L90 50 C90 75 50 95 50 95 C50 95 10 75 10 50 L10 20 Z" stroke="rgba(0,229,195,0.25)" stroke-width="2"/>
+            <path d="M50 5 L90 20 L90 50 C90 75 50 95 50 95 C50 95 10 75 10 50 L10 20 Z" fill="rgba(0,229,195,0.04)"/>
+            <path id="shield-check" d="M35 55 L45 65 L65 40" stroke="#00E5C3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0"/>
+          </svg>
+        </div>
+        <h2 class="font-orbitron ending-title">
+          <span class="end-line-1">YOUR PERIMETER</span>
+          <span class="end-line-2 text-teal">IS DEFENDED</span>
+        </h2>
+        <div class="relative w-full max-w-sm mt-8 mb-4">
+          <div class="h-px bg-white/10 w-full"></div>
+          <div id="end-scanline" class="end-scanline"></div>
+        </div>
+        <p class="end-sub font-mono" style="color:rgba(255,255,255,0.35);font-size:0.62rem;letter-spacing:0.24em;margin-bottom:2.5rem;">SYSTEM SECURE · ALL SYSTEMS NOMINAL</p>
+        <div style="display:flex;gap:0.6rem;margin-bottom:2.5rem;">
+          <span class="metric-badge ok"><span style="width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;"></span> 136 RULES PASSED</span>
+          <span class="metric-badge danger"><span style="width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;animation:blink 1.4s ease-in-out infinite;"></span> 2 CRITICAL</span>
+          <span class="metric-badge"><span style="width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;"></span> 4 HIGH</span>
+        </div>
+        <button id="end-btn" class="btn-magnetic btn-end">
+          <span class="btn-inner flex items-center gap-3">
+            DEPLOY CLOUDGUARD
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+          </span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- COMMAND PALETTE -->
+  <div id="cmd-palette">
+    <div id="cmd-box">
+      <div class="cmd-input-row">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E5C3" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="cmd-input" placeholder="Search commands, regions, rules..." autocomplete="off" spellcheck="false"/>
+        <kbd>ESC</kbd>
+      </div>
+      <div id="cmd-results"></div>
+      <div class="cmd-footer font-mono">
+        <span>↑↓ navigate</span><span>↵ select</span><span>ESC close</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEPLOY MODAL -->
+  <div id="deploy-modal">
+    <div id="deploy-box">
+      <div class="deploy-titlebar">
+        <div class="deploy-titlebar-left">
+          <div class="deploy-dots">
+            <div class="deploy-dot" style="background:#FF5F56"></div>
+            <div class="deploy-dot" style="background:#FFBD2E"></div>
+            <div class="deploy-dot" style="background:#27C93F"></div>
+          </div>
+          <span>cloudguard — deployment terminal</span>
+        </div>
+        <button id="deploy-close">×</button>
+      </div>
+      <div class="deploy-terminal" id="deploy-terminal"></div>
+      <div class="deploy-footer">
+        <div class="deploy-status" id="deploy-status">
+          <div class="deploy-status-dot"></div>
+          <span id="deploy-status-text">Preparing...</span>
+        </div>
+        <div class="deploy-url" id="deploy-url" style="display:none">https://cloudguard-v4.loca.lt</div>
+        <button class="deploy-copy-btn" id="deploy-copy-btn" style="display:none">COPY URL</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
