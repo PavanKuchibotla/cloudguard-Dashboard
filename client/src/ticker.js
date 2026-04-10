@@ -19,6 +19,14 @@ export function initTicker() {
   const inner = document.getElementById('ticker-inner');
   if (!inner) return;
 
+  const tickerMsg = document.getElementById('ticker-msg');
+  if (!tickerMsg) return;
+
+  const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:3000' : '';
+  const evtSource = new EventSource(`${API_BASE}/api/events/live`);
+
+  const queue = [];
+
   function buildItem(ev) {
     const el = document.createElement('span');
     el.className = `ticker-item ticker-${ev.sev.toLowerCase()}`;

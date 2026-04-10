@@ -12,6 +12,7 @@ gsap.registerPlugin(ScrollTrigger);
 
 // ── State ──────────────────────────────────────────────────────────────────
 let scanActive = false, topoInitialized = false, cachedTopology = null;
+const API_BASE = window.location.protocol === 'file:' ? 'http://localhost:3000' : '';
 
 // ── Reduce Motion ──────────────────────────────────────────────────────────
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -601,7 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.SoundEngine?.bootHum();
 
     try {
-      const res = await fetch('/api/scan', {
+      const res = await fetch(`${API_BASE}/api/scan`, {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ provider:'aws', region:'us-east-1' })
       });
@@ -609,7 +610,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const { jobId } = await res.json();
 
       await new Promise((resolve, reject) => {
-        const es = new EventSource(`/api/scan/${jobId}/status`);
+        const es = new EventSource(`${API_BASE}/api/scan/${jobId}/status`);
         let rid = null;
 
         es.onmessage = async ev => {
@@ -644,7 +645,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   async function loadReport(reportId) {
-    const res = await fetch(`/api/report/${reportId}`);
+    const res = await fetch(`${API_BASE}/api/report/${reportId}`);
     if (!res.ok) throw new Error('Report fetch failed');
     const { findings, cisScore } = await res.json();
     const tbody = document.getElementById('audit-table-body');
@@ -660,7 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('demo-report-btn')?.addEventListener('click', async () => {
     try {
-      const res = await fetch('/api/report/demo');
+      const res = await fetch(`${API_BASE}/api/report/demo`);
       if (!res.ok) throw new Error('unavailable');
       const { findings, cisScore } = await res.json();
       const tbody = document.getElementById('audit-table-body');
